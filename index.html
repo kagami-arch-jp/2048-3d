@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no">
+<title>2048 3D</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="ui">
+<div class="title">2048</div>
+<div class="score-group">
+<div class="score-box"><div class="score-label">スコア</div><div class="score-val" id="score">0</div></div>
+<div class="score-box"><div class="score-label">ベスト</div><div class="score-val" id="best">0</div></div>
+</div>
+<div class="btn-group">
+<button class="action-btn" id="reset-cam-btn">◉ カメラ</button>
+<button class="action-btn" id="new-game-btn">✦ 新しいゲーム</button>
+</div>
+</div>
+
+<div id="modal">
+<div id="modal-inner">
+<h1 id="modal-title">ゲームオーバー</h1>
+<p id="modal-score"></p>
+<p class="sub" id="modal-sub"></p>
+<button id="modal-btn">もう一度プレイ</button>
+</div>
+</div>
+
+<script type="importmap">
+{
+"imports":{
+"three":"https://cdn.jsdelivr.net/npm/three@0.168.0/build/three.module.js",
+"three/addons/":"https://cdn.jsdelivr.net/npm/three@0.168.0/examples/jsm/"
+}
+}
+</script>
+
+<script type="module">
+import { GameController } from './game-control.js';
+const ctrl = new GameController();
+ctrl.init();
+</script>
+</body>
+</html>
