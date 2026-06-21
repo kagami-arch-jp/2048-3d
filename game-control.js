@@ -92,7 +92,11 @@ export class GameController {
     }
     this._isAnimating = true;
 
-    const promises = result.moves.map(m => this.view.animateMoveTo(m.id, m.toR, m.toC));
+    const promises = result.moves.map(m => {
+      if (!m.merged) return this.view.animateMoveTo(m.id, m.toR, m.toC);
+      if (m.fromR === m.toR && m.fromC === m.toC) return Promise.resolve();
+      return this.view.animateMergeTo(m.id, m.toR, m.toC);
+    });
     await Promise.all(promises);
 
     this.view.applyMoveResult(result, this.game.grid);
