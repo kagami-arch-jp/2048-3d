@@ -9,6 +9,7 @@ export class GameController {
     this.game = null;
     this.view = new GameView();
     this._isAnimating = false;
+    this._isCameraMode = false;
     this._lastTime = 0;
     this._camSaveCounter = 0;
     this._boundLoop = (t) => this._loop(t);
@@ -66,9 +67,12 @@ export class GameController {
       this._handleMove(dir);
     });
 
+    document.getElementById('cam-toggle-btn').addEventListener('click', () => this._toggleCameraMode());
+
     let tx = 0, ty = 0;
-    window.addEventListener('touchstart', e => { tx = e.changedTouches[0].clientX; ty = e.changedTouches[0].clientY; });
+    window.addEventListener('touchstart', e => { if (this._isCameraMode) return; tx = e.changedTouches[0].clientX; ty = e.changedTouches[0].clientY; });
     window.addEventListener('touchend', e => {
+      if (this._isCameraMode) return;
       const dx = e.changedTouches[0].clientX - tx;
       const dy = e.changedTouches[0].clientY - ty;
       const ax = Math.abs(dx), ay = Math.abs(dy);
@@ -83,11 +87,19 @@ export class GameController {
 
   // ===== MOVE ORCHESTRATION =====
 
+  _toggleCameraMode() {
+    this._isCameraMode = !this._isCameraMode;
+    document.getElementById('cam-overlay').classList.toggle('show', this._isCameraMode);
+    const btn = document.getElementById('cam-toggle-btn');
+    btn.textContent = this._isCameraMode ? '◉ 戻る' : '◉ カメラ調整';
+    this.view.setCameraMode(this._isCameraMode);
+  }
+
   async _handleMove(dir) {
-    if (this._isAnimating || !this.game) return;
+    if (this._isAnimating || !this.game || this._isCameraMode) return;
     const result = this.game.move(dir);
     if (!result.moved) {
-      this.view.rejectMove();
+      this.view.rejectMove(dir);
       return;
     }
     this._isAnimating = true;

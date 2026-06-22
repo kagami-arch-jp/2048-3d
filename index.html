@@ -15,10 +15,13 @@
 <div class="score-box"><div class="score-label">ベスト</div><div class="score-val" id="best">0</div></div>
 </div>
 <div class="btn-group">
-<button class="action-btn" id="reset-cam-btn">◉ カメラ</button>
+<button class="action-btn" id="cam-toggle-btn" data-cam-mode="0">◉ カメラ調整</button>
+<button class="action-btn" id="reset-cam-btn">◉ リセット</button>
 <button class="action-btn" id="new-game-btn">✦ 新しいゲーム</button>
 </div>
 </div>
+
+<div id="cam-overlay"><span id="cam-hint">カメラ調整中：1本指で視点変更</span></div>
 
 <div id="modal">
 <div id="modal-inner">

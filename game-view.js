@@ -51,10 +51,12 @@ export class GameView {
     this._controls.update();
 
     if ('ontouchstart' in window) this._setupTouchCamera();
+    this._scene.add(this._camera);
 
     this._tileGroups = new Map();
     this._activeTweens = [];
     this._particles = [];
+    this._cameraMode = false;
     this._dirty = true;
 
     this._setupLights();
@@ -243,12 +245,14 @@ export class GameView {
     this._scene.add(g);
     this._tileGroups.set(tile.id, g);
     g.userData.tileId = tile.id;
+    g.userData._originX = pos.x;
     return g;
   }
 
   removeTile(id) {
     const g = this._tileGroups.get(id);
     if (!g) return null;
+    this._cancelValueTransition(g);
     this._scene.remove(g);
     g.traverse(child => {
       if (child.isMesh) {
@@ -278,6 +282,7 @@ export class GameView {
     this._scene.add(g);
     this._tileGroups.set(tile.id, g);
     g.userData.tileId = tile.id;
+    g.userData._originX = pos.x;
     return g;
   }
 
@@ -319,6 +324,7 @@ export class GameView {
       if (t >= 1) {
         if (tw.onComplete) tw.onComplete();
         this._activeTweens.splice(i, 1);
+        this._dirty = true;
       }
     }
   }
@@ -348,13 +354,26 @@ export class GameView {
     });
   }
 
+  _cancelValueTransition(group) {
+    const old = group.userData._valTween;
+    if (old != null) {
+      const idx = this._activeTweens.indexOf(old);
+      if (idx >= 0) this._activeTweens.splice(idx, 1);
+      group.userData._valTween = null;
+    }
+  }
+
   _animateValueTransition(group, newValue) {
     const mesh = group.children[0];
-    const oldH = group.userData.height;
-    const newH = tileHeight(newValue);
     const oldValue = group.userData.value;
+    const oldH = tileHeight(oldValue);
+    const newH = tileHeight(newValue);
 
-    // Pre-generate textures for each intermediate value
+    this._cancelValueTransition(group);
+
+    mesh.scale.set(1, 1, 1);
+    mesh.position.y = oldH / 2;
+
     const textures = [];
     const step = oldValue < newValue ? 1 : -1;
     for (let v = oldValue + step; step > 0 ? v <= newValue : v >= newValue; v += step) {
@@ -374,9 +393,16 @@ export class GameView {
       const finalTex = new THREE.CanvasTexture(this._createTileCanvas(newValue));
       mesh.material.map = finalTex;
       mesh.material.needsUpdate = true;
+      const oldGeo = mesh.geometry;
+      mesh.geometry = new RoundedBoxGeometry(CELL, newH, CELL, 2, .08);
+      oldGeo.dispose();
+      mesh.scale.set(1, 1, 1);
+      mesh.position.y = newH / 2;
       group.userData.value = newValue;
       group.userData.height = newH;
+      group.userData._valTween = null;
     });
+    group.userData._valTween = this._activeTweens[this._activeTweens.length - 1];
   }
 
   animateSpawn(group, delay = 0) {
@@ -492,16 +518,54 @@ export class GameView {
     }
   }
 
-  rejectMove() {
-    this._cancelTweens(this._board);
-    const by = this._board.position.y;
-    this._tweenObj(this._board, .04, { position: new THREE.Vector3(.1, by, 0) }, null, () => {
-      this._tweenObj(this._board, .04, { position: new THREE.Vector3(-.1, by, 0) }, null, () => {
-        this._tweenObj(this._board, .04, { position: new THREE.Vector3(.06, by, 0) }, null, () => {
-          this._tweenObj(this._board, .03, { position: new THREE.Vector3(0, by, 0) });
+  _emitRejectEdgeEffect(dir) {
+    const half = BOARD_SIZE / 2;
+    const color = 0xff4433;
+    const dirVec = { left: new THREE.Vector3(-1,0,0), right: new THREE.Vector3(1,0,0), up: new THREE.Vector3(0,0,-1), down: new THREE.Vector3(0,0,1) }[dir];
+    if (!dirVec) return;
+    const count = 6;
+    for (let i = 0; i < count; i++) {
+      const t = (i / (count - 1)) - .5;
+      const pos = new THREE.Vector3(
+        dirVec.x !== 0 ? dirVec.x * half : t * BOARD_SIZE,
+        .15 + Math.random() * .1,
+        dirVec.z !== 0 ? dirVec.z * half : t * BOARD_SIZE
+      );
+      const numP = 4 + Math.floor(Math.random() * 3);
+      for (let j = 0; j < numP; j++) {
+        const size = .025 + Math.random() * .035;
+        const c = new THREE.Color(color);
+        c.offsetHSL((Math.random() - .5) * .05, 0, (Math.random() - .5) * .1);
+        const mesh = new THREE.Mesh(
+          new THREE.BoxGeometry(size, size, size),
+          new THREE.MeshBasicMaterial({ color: c, transparent: true })
+        );
+        mesh.position.copy(pos);
+        const speed = .08 + Math.random() * .14;
+        mesh.userData.vel = new THREE.Vector3(
+          dirVec.x * speed + (Math.random() - .5) * .25,
+          Math.random() * .06 + .02,
+          dirVec.z * speed + (Math.random() - .5) * .25
+        );
+        mesh.userData.life = 1;
+        mesh.userData.decay = .012 + Math.random() * .015;
+        this._scene.add(mesh);
+        this._particles.push(mesh);
+      }
+    }
+  }
+
+  rejectMove(dir) {
+    for (const [, group] of this._tileGroups) {
+      const ox = group.userData._originX ?? group.position.x;
+      this._cancelTweens(group.position);
+      this._tweenObj(group.position, .04, { x: ox + .15 }, null, () => {
+        this._tweenObj(group.position, .04, { x: ox - .12 }, null, () => {
+          this._tweenObj(group.position, .03, { x: ox }, null, () => {});
         });
       });
-    });
+    }
+    if (dir) this._emitRejectEdgeEffect(dir);
   }
 
   // ===== GRID SYNC (call after move animation completes) =====
@@ -608,6 +672,11 @@ export class GameView {
     };
   }
 
+  setCameraMode(active) {
+    this._cameraMode = active;
+    if (active) this._controls.enableRotate = true;
+  }
+
   setCameraState(s) {
     if (!s) return;
     this._camera.position.set(s.px, s.py, s.pz);
@@ -617,7 +686,9 @@ export class GameView {
 
   _setupTouchCamera() {
     const canvas = this._renderer.domElement;
-    const setMode = (n) => { this._controls.enableRotate = n >= 2; };
+    const setMode = (n) => {
+      this._controls.enableRotate = this._cameraMode || n >= 2;
+    };
     canvas.addEventListener('touchstart', (e) => { setMode(e.touches.length); }, { passive: true });
     canvas.addEventListener('touchend', (e) => { setMode(e.touches.length); }, { passive: true });
   }
