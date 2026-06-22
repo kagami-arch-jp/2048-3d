@@ -1,0 +1,6 @@
+{
+  "scripts": {
+    "cf:deploy": "wrangler pages deploy ."
+  }
+}
+

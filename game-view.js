@@ -216,9 +216,44 @@ export class GameView {
     const str = String(value);
     const dark = r0 * .299 + g0 * .587 + b0 * .114 > 160;
     const tc = dark ? '#776e65' : '#f9f6f2';
-    const ts = dark ? '#e6ddd0' : '#ffffff';
-    ctx.fillStyle = ts; ctx.fillText(str, 128, 133);
-    ctx.fillStyle = tc; ctx.fillText(str, 128, 132);
+
+    ctx.save();
+    ctx.shadowColor = dark ? 'rgba(0,0,0,.35)' : 'rgba(0,0,0,.4)';
+    ctx.shadowBlur = 6;
+    ctx.fillStyle = dark ? 'rgba(0,0,0,.2)' : 'rgba(0,0,0,.25)';
+    ctx.fillText(str, 129, 134);
+
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = dark ? 'rgba(255,255,255,.1)' : 'rgba(255,255,255,.2)';
+    ctx.fillText(str, 126, 130);
+
+    ctx.fillStyle = tc;
+    ctx.fillText(str, 128, 132);
+    ctx.restore();
+    return canvas;
+  }
+
+  _createTileBumpMap(value) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256; canvas.height = 256;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#808080';
+    ctx.fillRect(0, 0, 256, 256);
+    const fs = value >= 1000 ? 70 : value >= 100 ? 90 : 115;
+    ctx.font = `900 ${fs}px Arial,"Hiragino Sans","Noto Sans JP",sans-serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const str = String(value);
+
+    ctx.save();
+    ctx.shadowColor = '#555';
+    ctx.shadowBlur = 8;
+    ctx.fillStyle = '#444';
+    ctx.fillText(str, 128, 132);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#333';
+    ctx.fillText(str, 128, 132);
+    ctx.restore();
     return canvas;
   }
 
@@ -227,7 +262,12 @@ export class GameView {
     const emis = EMISSIVE[value] || 0x554422;
     const mesh = new THREE.Mesh(
       new RoundedBoxGeometry(CELL, h, CELL, 2, .08),
-      new THREE.MeshStandardMaterial({ map: new THREE.CanvasTexture(this._createTileCanvas(value)), roughness: .7, metalness: .02, emissive: emis, emissiveIntensity: .03 })
+      new THREE.MeshStandardMaterial({
+        map: new THREE.CanvasTexture(this._createTileCanvas(value)),
+        bumpMap: new THREE.CanvasTexture(this._createTileBumpMap(value)),
+        bumpScale: .025,
+        roughness: .7, metalness: .52, emissive: emis, emissiveIntensity: .03
+      })
     );
     mesh.castShadow = true; mesh.receiveShadow = true;
     mesh.position.y = h / 2;
@@ -245,7 +285,6 @@ export class GameView {
     this._scene.add(g);
     this._tileGroups.set(tile.id, g);
     g.userData.tileId = tile.id;
-    g.userData._originX = pos.x;
     return g;
   }
 
@@ -282,7 +321,6 @@ export class GameView {
     this._scene.add(g);
     this._tileGroups.set(tile.id, g);
     g.userData.tileId = tile.id;
-    g.userData._originX = pos.x;
     return g;
   }
 
@@ -377,7 +415,11 @@ export class GameView {
     const textures = [];
     const step = oldValue < newValue ? 1 : -1;
     for (let v = oldValue + step; step > 0 ? v <= newValue : v >= newValue; v += step) {
-      textures.push({ value: v, tex: new THREE.CanvasTexture(this._createTileCanvas(v)) });
+      textures.push({
+        value: v,
+        tex: new THREE.CanvasTexture(this._createTileCanvas(v)),
+        bump: new THREE.CanvasTexture(this._createTileBumpMap(v)),
+      });
     }
 
     this._tweenObj({ t: 0 }, .5, { t: 1 }, (t) => {
@@ -387,11 +429,14 @@ export class GameView {
       const texIdx = Math.floor(t * textures.length);
       if (texIdx >= 0 && texIdx < textures.length && mesh.material.map !== textures[texIdx].tex) {
         mesh.material.map = textures[texIdx].tex;
+        mesh.material.bumpMap = textures[texIdx].bump;
         mesh.material.needsUpdate = true;
       }
     }, () => {
       const finalTex = new THREE.CanvasTexture(this._createTileCanvas(newValue));
+      const finalBump = new THREE.CanvasTexture(this._createTileBumpMap(newValue));
       mesh.material.map = finalTex;
+      mesh.material.bumpMap = finalBump;
       mesh.material.needsUpdate = true;
       const oldGeo = mesh.geometry;
       mesh.geometry = new RoundedBoxGeometry(CELL, newH, CELL, 2, .08);
@@ -556,12 +601,15 @@ export class GameView {
   }
 
   rejectMove(dir) {
+    const isH = dir === 'left' || dir === 'right';
     for (const [, group] of this._tileGroups) {
-      const ox = group.userData._originX ?? group.position.x;
+      const home = group.userData.homePos ?? group.position;
+      const coord = isH ? 'x' : 'z';
+      const origin = home[coord];
       this._cancelTweens(group.position);
-      this._tweenObj(group.position, .04, { x: ox + .15 }, null, () => {
-        this._tweenObj(group.position, .04, { x: ox - .12 }, null, () => {
-          this._tweenObj(group.position, .03, { x: ox }, null, () => {});
+      this._tweenObj(group.position, .04, { [coord]: origin + .15 }, null, () => {
+        this._tweenObj(group.position, .04, { [coord]: origin - .12 }, null, () => {
+          this._tweenObj(group.position, .03, { [coord]: origin }, null, () => {});
         });
       });
     }
@@ -576,7 +624,6 @@ export class GameView {
       const t = grid[r][c];
       if (t) gridById.set(t.id, t);
     }
-    const anchored = new Set();
     const merges = new Map();
     for (const m of result.moves) {
       if (!m.merged) continue;
@@ -596,7 +643,6 @@ export class GameView {
           this._tileGroups.set(newId, anchorGroup);
           this._tileGroups.delete(anchor.id);
           this._animateValueTransition(anchorGroup, newTile.value);
-          anchored.add(newId);
         }
       }
     }
@@ -607,15 +653,18 @@ export class GameView {
       for (let c = 0; c < 4; c++) {
         const t = grid[r][c];
         if (!t) continue;
-        if (anchored.has(t.id)) continue;
+        const target = cellPos(r, c);
         if (this._tileGroups.has(t.id)) {
           const g = this._tileGroups.get(t.id);
-          const target = cellPos(r, c);
           if (g.position.distanceTo(target) > .01) {
-            this._tweenObj(g, .1, { position: target });
+            g.position.copy(target);
           }
+          g.userData.homePos ??= target.clone();
+          g.userData.homePos.copy(target);
         } else {
           const g = this.spawnTile(t);
+          g.userData.homePos ??= target.clone();
+          g.userData.homePos.copy(target);
           g.scale.setScalar(.01);
           this.animateSpawn(g, 50);
         }
