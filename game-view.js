@@ -21,6 +21,16 @@ function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3) }
 function easeOutBack(t) { const c = 1.70158; return 1 + --t * t * ((c + 1) * t + c) }
 function easeInCubic(t) { return t * t * t }
 
+function animationStep(totalSteps, currentStep, beginNumber, beginHeight, endNumber, endHeight) {
+  if (!totalSteps) return [endNumber, endHeight];
+  const p=currentStep/totalSteps
+  const animate=(a, b, p)=>a+(b-a)*p
+  return [
+    Math.round(animate(beginNumber, endNumber, p)),
+    animate(beginHeight, endHeight, p),
+  ]
+}
+
 export class GameView {
   constructor(container = document.body) {
     this._scene = new THREE.Scene();
@@ -423,10 +433,10 @@ export class GameView {
     }
 
     this._tweenObj({ t: 0 }, .5, { t: 1 }, (t) => {
-      const h = oldH + (newH - oldH) * t;
+      const texIdx = Math.floor(t * textures.length);
+      const [, h] = animationStep(textures.length, texIdx, oldValue, oldH, newValue, newH);
       mesh.scale.y = h / oldH;
       mesh.position.y = h / 2;
-      const texIdx = Math.floor(t * textures.length);
       if (texIdx >= 0 && texIdx < textures.length && mesh.material.map !== textures[texIdx].tex) {
         mesh.material.map = textures[texIdx].tex;
         mesh.material.bumpMap = textures[texIdx].bump;
@@ -563,6 +573,35 @@ export class GameView {
     }
   }
 
+  _emitExplosion(position, color) {
+    const count = 150;
+    const base = new THREE.Color(color);
+    for (let i = 0; i < count; i++) {
+      const size = .015 + Math.random() * .06;
+      const c = base.clone();
+      c.offsetHSL((Math.random() - .5) * .08, 0, (Math.random() - .5) * .2);
+      const mesh = new THREE.Mesh(
+        new THREE.BoxGeometry(size, size, size),
+        new THREE.MeshBasicMaterial({ color: c, transparent: true })
+      );
+      mesh.position.copy(position);
+      mesh.position.y += .35;
+      const speed = .08 + Math.random() * .4;
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(2 * Math.random() - 1);
+      mesh.userData.vel = new THREE.Vector3(
+        speed * Math.sin(phi) * Math.cos(theta),
+        Math.abs(speed * Math.cos(phi)) + .06,
+        speed * Math.sin(phi) * Math.sin(theta)
+      );
+      mesh.userData.life = 1;
+      mesh.userData.decay = .003 + Math.random() * .01;
+      this._scene.add(mesh);
+      this._particles.push(mesh);
+    }
+    this._dirty = true;
+  }
+
   _emitRejectEdgeEffect(dir) {
     const half = BOARD_SIZE / 2;
     const color = 0xff4433;
@@ -630,6 +669,7 @@ export class GameView {
       if (!merges.has(m.newId)) merges.set(m.newId, []);
       merges.get(m.newId).push(m);
     }
+    const pendingExplosions = [];
     for (const [newId, ms] of merges) {
       const anchor = ms.find(m => m.fromR === m.toR && m.fromC === m.toC);
       for (const m of ms) {
@@ -645,6 +685,17 @@ export class GameView {
           this._animateValueTransition(anchorGroup, newTile.value);
         }
       }
+      const nTile = gridById.get(newId);
+      if (nTile && nTile.value >= 512) {
+        const mergePos = cellPos(ms[0].toR, ms[0].toC);
+        pendingExplosions.push(mergePos);
+      }
+    }
+    for (const pos of pendingExplosions) {
+      setTimeout(() => {
+        this._emitExplosion(pos, 0xf67c5f);
+        this._emitFlash(pos, 0xf67c5f);
+      }, 500);
     }
 
     this._removeOrphans(grid);

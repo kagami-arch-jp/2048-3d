@@ -96,7 +96,7 @@ export class GameController {
   }
 
   async _handleMove(dir) {
-    if (this._isAnimating || !this.game || this._isCameraMode) return;
+    if (this._isAnimating || !this.game || this._isCameraMode || this.game.over) return;
     const result = this.game.move(dir);
     if (!result.moved) {
       this.view.rejectMove(dir);
